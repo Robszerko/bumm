@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BUMM! - A Vetélkedő</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&family=Orbitron:wght@800&display=swap');
+        :root {
+            --bg-gradient-start: #1D2B64; --bg-gradient-end: #0F0C29;
+            --cell-bg: rgba(255, 255, 255, 0.05); --cell-border: rgba(0, 191, 255, 0.5);
+            --text-color: #E0E5EC; --glow-accent: #00BFFF; --bomb-color: #FF4757;
+            --success-color: #2ED573; --exit-color: #5758BB; --life-color: #FF6B81;
+            --money-color: #FFD700; --crater-bg: rgba(0,0,0,0.4); --path-color: rgba(255, 215, 0, 0.5);
+            --player-glow-intensity: 0.2;
+        }
+        body {
+            font-family: 'Poppins', sans-serif; display: flex; align-items: flex-start; justify-content: center;
+            min-height: 100vh; background: linear-gradient(135deg, var(--bg-gradient-start), var(--bg-gradient-end));
+            color: var(--text-color); margin: 0; padding: 20px; box-sizing: border-box; overflow-x: hidden;
+        }
+        #app-container { display: flex; gap: 20px; width: 100%; max-width: 1100px; align-items: flex-start; }
+        #game-wrapper {
+            background: rgba(0, 0, 0, 0.2); padding: clamp(15px, 2vw, 30px); border-radius: 30px;
+            backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center; flex-grow: 1; box-shadow: 0 0 50px rgba(0,0,0,0.5);
+            position: relative; /* Pozíció a várakozó képernyőhöz */
+        }
+        #info-panel {
+            width: 300px; flex-shrink: 0; background: rgba(0, 0, 0, 0.2);
+            padding: 20px; border-radius: 20px; border: 1px solid rgba(255, 255, 255, 0.1);
+            max-height: 90vh; overflow-y: auto;
+        }
+        #info-panel h3 { font-family: 'Orbitron', sans-serif; margin-top: 0; color: var(--glow-accent); }
+        .info-section { margin-bottom: 20px; min-height: 50px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 10px; }
+        #info-proximity-warning { color: var(--bomb-color); font-weight: 700; font-size: 1.2em; text-shadow: 0 0 10px var(--bomb-color); animation: flash-warning 1s infinite; visibility: hidden; }
+        #info-answer-buttons button { display: block; width: 100%; padding: 10px; margin: 8px 0; border: 1px solid var(--cell-border); border-radius: 10px; background: rgba(255,255,255,0.1); color: var(--text-color); font-size: 0.9em; cursor: pointer; transition: all 0.2s ease; }
+        #info-answer-buttons button.correct-answer { background-color: var(--success-color) !important; color: #0F0C29; }
+        #info-answer-buttons button.incorrect-answer { background-color: var(--bomb-color) !important; color: #FFF; }
+        #info-answer-buttons button:disabled:not(.correct-answer):not(.incorrect-answer) { opacity: 0.5; background: #555; }
+        #new-map-button { display: none; margin-top: 10px; }
+        #info-time { text-align: center; }
+        #info-time p { margin: 5px 0; }
+        
+        #game-header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; margin-bottom: 15px; gap: 10px; }
+        #logo-title { grid-column: 2 / 3; font-family: 'Orbitron', sans-serif; font-size: clamp(2rem, 6vw, 3rem); color: white; font-weight: 800; text-shadow: 0 0 10px var(--glow-accent), 0 0 20px var(--glow-accent); transition: transform 0.1s ease; }
+        #logo-title.triggered { animation: shake-and-flash 0.5s ease-in-out; }
+        .stats-container { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+        .stats-container.left { justify-content: flex-start; } .stats-container.right { justify-content: flex-end; }
+        .game-stat { display: flex; align-items: center; gap: 8px; font-size: clamp(0.9rem, 2vw, 1.1rem); font-weight: 600; padding: 8px 12px; border-radius: 12px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); }
+        .game-stat svg { width: clamp(20px, 3vw, 24px); height: clamp(20px, 3vw, 24px); }
+        #vest-indicator, #doubler-indicator { color: white; display: none; } #bomb-counter svg { color: var(--bomb-color); }
+        
+        #game-board-wrapper { overflow-x: auto; }
+        #game-board { border-collapse: separate; border-spacing: 4px; margin: 15px auto; }
+        #game-board th, #game-board td { width: clamp(35px, 8vw, 45px); height: clamp(35px, 8vw, 45px); }
+        #game-board th { font-family: 'Orbitron'; color: var(--glow-accent); cursor: default; user-select: none; /* Letiltja a szöveg kijelölését */ }
+        #game-board td { background: var(--cell-bg); border: 2px solid var(--cell-border); border-radius: 10px; box-shadow: inset 0 0 10px rgba(0, 191, 255, 0.2); position: relative; transition: all 0.2s ease; cursor: pointer; }
+        #game-board.scanner-active td { cursor: crosshair; }
+        #game-board td .icon { width: 60%; height: 60%; opacity: 0; transition: all 0.4s ease; transform: scale(0.5); position: absolute; top: 20%; left: 20%; filter: drop-shadow(0 0 5px currentColor); pointer-events: none; }
+        .player .icon, .question-cell .icon, .question-answered .icon, .exit-cell .icon, .bomb.revealed .icon, .life-cell .icon, .safe-cell .icon, .bomb-disarmed .icon, .code-piece-cell .icon, .lost-money-cell .icon, .flagged-cell .icon { opacity: 1; transform: scale(1); }
+        .player { background-color: var(--glow-accent) !important; box-shadow: 0 0 15px var(--glow-accent), 0 0 25px rgba(0, 191, 255, var(--player-glow-intensity)) !important; animation: player-glow 2s infinite; }
+        .bomb.revealed, .bomb.scanned { background-color: var(--bomb-color); box-shadow: 0 0 20px var(--bomb-color); }
+        .bomb-disarmed { background: var(--crater-bg); box-shadow: inset 0 0 15px #000; border-color: #555; cursor: default; }
+        .safe-cell, .code-piece-cell, .lost-money-cell { color: var(--money-color); }
+        .flagged-cell { color: var(--bomb-color); }
+        .question-cell,.question-answered,.exit-cell,.life-cell {color:#FFF} .question-answered{background-color:var(--success-color);box-shadow:0 0 20px var(--success-color)} .exit-cell{background-color:var(--exit-color);box-shadow:0 0 20px var(--exit-color)} .life-cell{color:var(--life-color)}
+        .path-highlight { background-color: var(--path-color) !important; box-shadow: 0 0 15px var(--path-color) !important; }
+        
+        #shop-container { margin-top:15px; } #shop-title { font-size:1.1em; font-weight:600; margin-bottom:10px; text-transform:uppercase; letter-spacing:2px; }
+        .shop-buttons { display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+        .shop-button { padding:8px 12px; border:2px solid var(--glow-accent); border-radius:12px; background:transparent; color:var(--glow-accent); font-size:.8em; font-weight:600; cursor:pointer; box-shadow:0 0 10px var(--glow-accent),inset 0 0 10px var(--glow-accent); transition:all .2s ease; }
+        .shop-button:hover:not(:disabled) { background-color:var(--glow-accent); color:#0F0C29; text-shadow:none; } .shop-button:disabled { opacity:.4; cursor:not-allowed; box-shadow:none; }
+        
+        #message-container { font-size:1.1em; font-weight:600; margin-top:15px; height:25px; }
+        #restart-button { margin-top:15px; padding:12px 25px; border:2px solid var(--glow-accent); border-radius:50px; background-color:transparent; color:var(--glow-accent); font-size:1em; font-weight:700; cursor:pointer; text-transform:uppercase; box-shadow:0 0 10px var(--glow-accent),inset 0 0 10px var(--glow-accent); transition:all .2s ease; }
+        #restart-button:hover { background-color:var(--glow-accent); color:#0F0C29; text-shadow:none; }
+        
+        /* Integrált várakozó képernyő stílusai */
+        #integrated-wait-screen {
+            position: absolute;
+            top: 110px;
+            left: 20px;
+            right: 20px;
+            bottom: 20px;
+            background: rgba(15, 12, 41, 0.97);
+            border-radius: 20px;
+            z-index: 50;
+            display: none; /* Alapból rejtett */
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+        }
+        #wait-info-content { text-align: left; max-width: 90%; width: 100%; font-size: 0.9rem; }
+        #wait-info-content h3 { font-family: 'Orbitron', sans-serif; font-size: clamp(1.3em, 3vw, 1.8em); margin-bottom: 15px; color: var(--glow-accent); text-align: center; }
+        #wait-info-content h4 { font-family: 'Orbitron', sans-serif; color: var(--glow-accent); margin-top: 20px; font-size: 1em; }
+        #wait-info-content p { font-size: clamp(0.9em, 2vw, 1.1em); line-height: 1.5; text-align: center; margin-bottom: 15px; }
+        #wait-info-content ul { padding-left: 20px; line-height: 1.6; }
+        #wait-info-content ul li { margin-bottom: 8px; }
+        #wait-info-content ul ul { margin-left: 20px; margin-top: 5px; }
+
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; z-index: 1000; }
+        .modal.visible { opacity: 1; pointer-events: auto; }
+        .modal-content { transform: scale(0.9); transition: transform 0.3s ease; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--cell-border); padding: 30px; border-radius: 20px; width: 90%; text-align: center; }
+        .modal.visible .modal-content { transform: scale(1); }
+        #safe-container { max-width: 350px; }
+        #final-chance-container { max-width: 600px; max-height: 90vh; overflow-y: auto; }
+        #final-chance-container button { display: block; width: 100%; padding: 15px; margin: 10px 0; border: 1px solid var(--cell-border); border-radius: 15px; background: rgba(255,255,255,0.1); color: var(--text-color); font-size: 1.1em; cursor: pointer; }
+        #safe-display { width: 100%; height: 50px; background: rgba(0,0,0,0.3); border-radius: 10px; margin-bottom: 20px; font-size: 2em; letter-spacing: 10px; text-align: center; color: white; }
+        #safe-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+        #safe-keypad button { padding: 15px; font-size: 1.5em; border: 1px solid var(--cell-border); border-radius: 15px; background: rgba(255,255,255,0.1); color: var(--text-color); cursor: pointer; }
+        #safe-display.error { animation: shake-error 0.5s; }
+        
+        @keyframes shake-and-flash { 0%,100%{transform:translateX(0);color:white;text-shadow:0 0 10px var(--glow-accent),0 0 20px var(--glow-accent)} 10%,30%,50%,70%,90%{transform:translateX(-5px);color:var(--bomb-color);text-shadow:0 0 10px var(--bomb-color)} 20%,40%,60%,80%{transform:translateX(5px)} }
+        @keyframes player-glow { 50% { box-shadow: 0 0 25px var(--glow-accent), 0 0 40px rgba(0, 191, 255, var(--player-glow-intensity)); } }
+        @keyframes flash-warning { 50% { opacity: 0.5; } }
+        @keyframes shake-error { 10%,90%{transform:translateX(-5px)} 20%,80%{transform:translateX(5px)} 30%,50%,70%{transform:translateX(-8px)} 40%,60%{transform:translateX(8px)} }
+        @media (max-width: 1050px) { #app-container { flex-direction: column; align-items: center; } #info-panel { width: 100%; max-width: 650px; margin-top: 20px; min-height: auto; } }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="game-wrapper">
+            <div id="game-header">
+                <div class="stats-container left">
+                    <div id="lives-container" class="game-stat"></div>
+                    <div id="money-container" class="game-stat">
+                        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M13.5,15.5H16.5V17H13.5V15.5M13.5,13H16.5V14.5H13.5V13M7.5,15.5H10.5V17H7.5V15.5M7.5,13H10.5V14.5H7.5V13M12,6A3,3 0 0,1 15,9H9A3,3 0 0,1 12,6M12,7.75C11.31,7.75 10.75,8.31 10.75,9H13.25C13.25,8.31 12.69,7.75 12,7.75M12,18.5A1.5,1.5 0 0,1 10.5,17H13.5A1.5,1.5 0 0,1 12,18.5Z" /></svg>
+                        <span id="money-value">0 Ft</span>
+                    </div>
+                </div>
+                <div id="logo-title">BUMM!</div>
+                <div class="stats-container right">
+                    <div id="doubler-indicator" class="game-stat">2x <span id="doubler-count"></span></div>
+                    <div id="vest-indicator" class="game-stat">🛡️ <span id="vest-count"></span></div>
+                    <div id="bomb-counter" class="game-stat">
+                        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h2v2h-2zm0-8h2v6h-2z"/></svg>
+                        <span id="bomb-value">5</span>
+                    </div>
+                    <div id="question-counter" class="game-stat">
+                        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M14,10H12V4H14M14,12H12V14H14M10,10H8V12H10M10,4H8V8H10M16,16H8V18H16M16,12H14V14H16M16,10H14V8H16M18,20H6V3C6,2.45 6.45,2 7,2H17C17.55,2 18,2.45 18,3V20M20,20V3C20,1.34 18.66,0 17,0H7C5.34,0 4,1.34 4,3V20C4,21.66 5.34,23 7,23H17C18.66,23 20,21.66 20,20Z" /></svg>
+                        <span id="question-value">0 / 5</span>
+                    </div>
+                </div>
+            </div>
+            <div id="game-elements">
+                <div id="game-board-wrapper"><table id="game-board"></table></div>
+                <div id="shop-container">
+                    <div id="shop-title">Segítségek</div>
+                    <div class="shop-buttons">
+                        <button id="shop-scan-cell" class="shop-button">🎯 Mező Szkenner (75 Ft)</button>
+                        <button id="shop-doubler" class="shop-button">2x Pénz Duplázó (150 Ft)</button>
+                        <button id="shop-gps" class="shop-button">🛰️ GPS Útvonal (250 Ft)</button>
+                        <button id="shop-vest" class="shop-button">🛡️ Bomba Mellény (300 Ft)</button>
+                        <button id="shop-life" class="shop-button">❤️ Extra Élet (400 Ft)</button>
+                    </div>
+                </div>
+                <div id="message-container"></div>
+                <button id="restart-button">Új Játék Indítása</button>
+            </div>
+            <div id="integrated-wait-screen">
+                <div id="wait-info-content">
+                    <h3>A játék egyelőre véget ért.</h3>
+                    <p>A következő, mindenki számára egységes pálya <strong id="wait-time"></strong>-kor indul.</p>
+                    <h4>Részletes Játékszabályzat</h4>
+                    <ul>
+                        <li><strong>Cél:</strong> Juss el a véletlenszerűen elhelyezett kijárathoz, miután mind az 5 kérdésre válaszoltál!</li>
+                        <li><strong>Bombák:</strong> Kerüld el a rejtett bombákat! A helyüket a játék elején 2 másodpercre megmutatjuk. Ha bombára lépsz, életet veszítesz, de a helye biztonságossá válik (kráter jelzi). Jobb klikkel megjelölhetsz egy mezőt, ha bombát sejtesz ott.</li>
+                        <li><strong>Kérdések:</strong> A kérdőjeles mezőkön te választhatod ki a kérdés nehézségét (és a jutalmát). Helytelen válasz 1 életbe kerül, de a kérdés megválaszoltnek minősül.</li>
+                        <li><strong>Széf & Kód:</strong> A pályán el van rejtve egy széf és a 4 jegyű kódjának darabjai. Gyűjtsd össze a darabokat, lépj a széf-mezőre, és hatástalanítsd az összes bombát!</li>
+                        <li><strong>Életek & Power-upok:</strong> 3 élettel kezdesz. A pályán fix helyeken találsz plusz életeket.</li>
+                        <li><strong>Pénz & Segítségek:</strong> A helyes válaszokért pénzt kapsz, amit a boltban különböző segítségekre válthatsz. Elegendő pénzért bármennyi segítséget vásárolhatsz.
+                            <ul>
+                                <li><strong>Mező Szkenner:</strong> Felfed egy általad választott mezőt anélkül, hogy rálépnél.</li>
+                                <li><strong>Pénz Duplázó:</strong> A következő helyes válaszodért dupla pénz jár. Több is felhalmozható.</li>
+                                <li><strong>GPS Útvonal:</strong> Megmutatja a legrövidebb biztonságos utat a következő kérdéshez.</li>
+                                <li><strong>Bomba Mellény:</strong> Megvéd a következő bomba robbanásától (nem veszítesz életet). Több is felhalmozható.</li>
+                                <li><strong>Extra Élet:</strong> Azonnal kapsz egy plusz életet.</li>
+                                <li><strong>Felező / Átugrás:</strong> A kérdés alatt elérhető opciók.</li>
+                            </ul>
+                        </li>
+                        <li><strong>Pénzmentés:</strong> Ha minden életed elfogy, egy utolsó kérdéssel átmentheted a pénzed a következő, szinkronizált pályára. Ha elbukod, a következő pályán visszaszerezheted!</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <div id="info-panel">
+             <div id="info-time" class="info-section">
+                <p>Idő: <span id="current-time"></span></p>
+                <p>Új pálya: <span id="next-map-time"></span></p>
+                <button id="new-map-button" class="shop-button">Új Pálya Elérhető!</button>
+            </div>
+            <div id="info-safe" class="info-section">
+                <h3>Széf</h3>
+                <p id="info-safe-hint"></p>
+                <p id="info-safe-coords"></p>
+            </div>
+            <div id="info-status" class="info-section">
+                <h3>Státusz</h3>
+                <p id="info-proximity-warning">BOMBA A KÖZELBEN!</p>
+                <p id="info-exit-coords"></p>
+            </div>
+            <div id="info-question" class="info-section">
+                <h3 id="info-question-title">Kérdés</h3>
+                <p id="info-question-text"></p>
+                <div id="info-answer-buttons"></div>
+                <div id="info-question-shop" class="shop-buttons" style="margin-top:15px; display:none;">
+                     <button id="shop-halve" class="shop-button">🧠 Felező (100 Ft)</button>
+                     <button id="shop-skip" class="shop-button">⏩ Átugrás (200 Ft)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="safe-modal" class="modal">
+        <div id="safe-container" class="modal-content">
+            <h3>Add meg a Széf Kódját</h3>
+            <div id="safe-display"></div>
+            <div id="safe-keypad"></div>
+        </div>
+    </div>
+    <div id="final-chance-modal" class="modal">
+        <div id="final-chance-container" class="modal-content">
+            <h3>Pénzmentő Kérdés!</h3>
+            <p id="final-chance-message"></p>
+            <h2 id="final-chance-question"></h2>
+            <div id="final-chance-answers"></div>
+        </div>
+    </div>
+    <div id="svg-definitions" style="display: none;">
+        <svg id="player-svg" viewBox="0 0 24 24"><path fill="white" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        <svg id="bomb-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 15h2v2h-2zm0-8h2v6h-2z"/></svg>
+        <svg id="safe-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M18,4H6C4.9,4 4,4.9 4,6V18C4,19.1 4.9,20 6,20H18C19.1,20 20,19.1 20,18V6C20,4.9 19.1,4 18,4M12,16C10.9,16 10,15.1 10,14C10,12.9 10.9,12 12,12C13.1,12 14,12.9 14,14C14,15.1 13.1,16 12,16M15,8H9V10H15V8Z" /></svg>
+        <svg id="code-piece-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M15,4V6H18V18H15V20H18C19.1,20 20,19.1 20,18V6C20,4.9 19.1,4 18,4M9,20V18H6V6H9V4H6C4.9,4 4,4.9 4,6V18C4,19.1 4.9,20 6,20M14,14H10V16H14V14M14,10H10V12H14V10M14,6H10V8H14V6Z" /></svg>
+        <svg id="flag-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M14.4,6L14,4H5V21H7V14H12.6L13,16H20V6H14.4Z" /></svg>
+        <svg id="lost-money-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M15,13V11H18.2C18.1,9.8 17.6,8.8 16.8,8.1L15.4,9.5C15.8,9.9 16,10.4 16.1,11H15M11,15H13V16.1C12.6,16 12.3,16 12,16C10.1,16 8.5,14.6 8.2,12.8H10V11H8.1C8,10.7 8,10.4 8,10C8,8.1 9.4,6.5 11.2,6.2V8H13V6.1C13.4,6.2 13.7,6.2 14,6.3L15.4,4.9C14.1,4.3 12.6,4 11.1,4C6.1,4 2,8 2,13C2,18 6.1,22 11.1,22C12.4,22 13.6,21.8 14.7,21.3L13.3,19.9C12.6,20 11.9,20.1 11.1,20.1C7.3,20.1 4.1,17 4.1,13C4.1,9 7.3,5.9 11.1,5.9C11.4,5.9 11.7,6 12,6C12,6 12,6 12,6V6C12,6 12,6 12,6V8H11V6C11,6 11,6 11,6M20,13H22V11H20V13M20,17H22V15H20V17M18,21H20V19H18V21Z" /></svg>
+        <svg id="crater-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4C14.25,4 16.3,5.05 17.75,6.56L6.56,17.75C5.05,16.3 4,14.25 4,12C4,7.58 7.58,4 12,4M12,20C9.75,20 7.7,18.95 6.25,17.44L17.44,6.25C18.95,7.7 20,9.75 20,12C20,16.42 16.42,20 12,20Z" /></svg>
+        <svg id="question-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v2h-2V7zm0 4h2v6h-2v-6z"/></svg>
+        <svg id="disarmed-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+        <svg id="exit-svg" viewBox="0 0 24 24"><path fill="white" d="M10 9V5l-7 7 7 7v-4.1c5 0 8.5 1.6 11 5.1-1-5-4-10-11-11z"/></svg>
+        <svg id="life-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+    </div>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const boardSize = 8, bombCount = 5, questionCount = 5, initialLives = 3;
+            const costs = { scanCell: 75, halve: 100, doubler: 150, skip: 200, gps: 250, vest: 300, life: 400 };
+            const fixedLifeCoords = [{x:1, y:1}, {x:1, y:6}, {x:6, y:1}, {x:6, y:6}];
+            const safeCode = "7391";
+            const MAP_REFRESH_INTERVAL = 5 * 60 * 1000;
+
+            // DOM Elements...
+            const gameBoardElement = document.getElementById('game-board'), safeModal = document.getElementById('safe-modal'), finalChanceModal = document.getElementById('final-chance-modal'),
+                  messageContainer = document.getElementById('message-container'), restartButton = document.getElementById('restart-button'),
+                  livesContainer = document.getElementById('lives-container'), moneyValueEl = document.getElementById('money-value'),
+                  questionCounterEl = document.getElementById('question-value'), bombCounterEl = document.getElementById('bomb-value'),
+                  logoTitle = document.getElementById('logo-title'), infoSafeHintEl = document.getElementById('info-safe-hint'),
+                  infoSafeCoordsEl = document.getElementById('info-safe-coords'), infoProximityEl = document.getElementById('info-proximity-warning'),
+                  infoQuestionTextEl = document.getElementById('info-question-text'), infoAnswerButtonsEl = document.getElementById('info-answer-buttons'),
+                  infoExitCoordsEl = document.getElementById('info-exit-coords'), infoQuestionShopEl = document.getElementById('info-question-shop'),
+                  safeDisplay = document.getElementById('safe-display'), safeKeypad = document.getElementById('safe-keypad'),
+                  vestIndicator = document.getElementById('vest-indicator'), vestCountEl = document.getElementById('vest-count'),
+                  doublerIndicator = document.getElementById('doubler-indicator'), doublerCountEl = document.getElementById('doubler-count'),
+                  shopScanCellBtn = document.getElementById('shop-scan-cell'), shopGpsBtn = document.getElementById('shop-gps'),
+                  shopVestBtn = document.getElementById('shop-vest'), shopHalveBtn = document.getElementById('shop-halve'),
+                  shopSkipBtn = document.getElementById('shop-skip'), shopDoublerBtn = document.getElementById('shop-doubler'),
+                  shopLifeBtn = document.getElementById('shop-life'),
+                  currentTimeEl = document.getElementById('current-time'), nextMapTimeEl = document.getElementById('next-map-time'),
+                  newMapButton = document.getElementById('new-map-button'),
+                  waitTimeEl = document.getElementById('wait-time'),
+                  gameElements = document.getElementById('game-elements'),
+                  integratedWaitScreen = document.getElementById('integrated-wait-screen');
+                  
+            const icons = {
+                player: document.getElementById('player-svg').cloneNode(true), bomb: document.getElementById('bomb-svg').cloneNode(true),
+                safe: document.getElementById('safe-svg').cloneNode(true), crater: document.getElementById('crater-svg').cloneNode(true), 
+                question: document.getElementById('question-svg').cloneNode(true), disarmed: document.getElementById('disarmed-svg').cloneNode(true), 
+                exit: document.getElementById('exit-svg').cloneNode(true), life: document.getElementById('life-svg').cloneNode(true),
+                codePiece: document.getElementById('code-piece-svg').cloneNode(true), lostMoney: document.getElementById('lost-money-svg').cloneNode(true),
+                flag: document.getElementById('flag-svg').cloneNode(true) };
+            Object.values(icons).forEach(icon => icon.classList.add('icon'));
+
+            let playerPosition, boardData, currentQuestion, exitPosition;
+            let answeredQuestions, gameOver, gameLocked, lives, money, prevPosition, isScannerActive, activeBombs;
+            let vestCount, doublerCount;
+            let foundCodePieces = ['_', '_', '_', '_'];
+            let usedQuestionIndices, currentMapSeed, lostMoneyAmount = 0;
+            let seededRandom;
+            
+            const questions = {
+                easy: [
+                    { question: "Hány nap van egy hétben?", answers: ["5", "7", "10"], correct: 1 }, { question: "Melyik a Föld legnagyobb óceánja?", answers: ["Atlanti", "Indiai", "Csendes"], correct: 2 }, { question: "Mi a víz kémiai képlete?", answers: ["CO2", "O2", "H2O"], correct: 2 }, { question: "Hány bolygó van a Naprendszerünkben?", answers: ["8", "9", "7"], correct: 0 }, { question: "Melyik ország zászlaján van egy juharlevél?", answers: ["Svájc", "Kanada", "Ausztria"], correct: 1 }, { question: "Mi Japán fővárosa?", answers: ["Peking", "Szöul", "Tokió"], correct: 2}, { question: "Hány oldala van egy kockának?", answers: ["6", "8", "12"], correct: 0 }, { question: "Hány színből áll a szivárvány?", answers: ["6", "7", "8"], correct: 1 }, { question: "Hány méter egy kilométer?", answers: ["100", "1000", "10000"], correct: 1 }, { question: "Hány nap van egy szökőévben?", answers: ["365", "366", "364"], correct: 1 }, { question: "Melyik városban található az Eiffel-torony?", answers: ["London", "Róma", "Párizs"], correct: 2 }, { question: "Melyik a legnagyobb emlős?", answers: ["Elefánt", "Kék bálna", "Zsiráf"], correct: 1}, { question: "Ki fedezte fel Amerikát 1492-ben?", answers: ["Vasco da Gama", "Kolumbusz Kristóf", "Magellán"], correct: 1}, { question: "Mi a 'Pí' értéke (két tizedesjegyig)?", answers: ["3.14", "2.71", "1.62"], correct: 0}, { question: "Melyik évszak jön a nyár után?", answers: ["Tél", "Tavasz", "Ősz"], correct: 2}, { question: "Melyik bolygó a 'vörös bolygó'?", answers: ["Mars", "Vénusz", "Jupiter"], correct: 0}, { question: "Miből van a legtöbb a levegőben?", answers: ["Oxigén", "Szén-dioxid", "Nitrogén"], correct: 2}, { question: "Melyik a legkisebb kontinens?", answers: ["Európa", "Dél-Amerika", "Ausztrália"], correct: 2}, { question: "Hogyan mondják angolul, hogy 'kutya'?", answers: ["Cat", "Dog", "Bird"], correct: 1}, { question: "Hány lába van egy pókank?", answers: ["6", "8", "10"], correct: 1}, { question: "Milyen színű egy érett citrom?", answers: ["Zöld", "Narancs", "Sárga"], correct: 2}, { question: "Melyik a leggyorsabb szárazföldi állat?", answers: ["Gepárd", "Villásszarvú antilop", "Oroszlán"], correct: 0}, { question: "Hány törpe volt Hófehérke meséjében?", answers: ["5", "7", "9"], correct: 1}, { question: "Melyik ország híres a piramisokról?", answers: ["Görögország", "Egyiptom", "Mexikó"], correct: 1}, { question: "Milyen állat Shrek?", answers: ["Szörny", "Ogre", "Troll"], correct: 1},
+                    { question: "Melyik a legnagyobb kontinens?", answers: ["Afrika", "Ázsia", "Európa"], correct: 1 }, { question: "Hány nap van a februárban, ha nem szökőév?", answers: ["28", "29", "30"], correct: 0 }, { question: "Mi Magyarország fővárosa?", answers: ["Debrecen", "Szeged", "Budapest"], correct: 2 }, { question: "Milyen állat a delfin?", answers: ["Hal", "Emlős", "Hüllő"], correct: 1 }, { question: "Melyik szín NEM alapszín?", answers: ["Piros", "Kék", "Zöld"], correct: 2 }, { question: "Hány lába van egy rovarnak?", answers: ["4", "6", "8"], correct: 1 }, { question: "Melyik a legmagasabb hegy a világon?", answers: ["K2", "Mount Everest", "Mont Blanc"], correct: 1 }, { question: "Melyik a leghosszabb folyó Magyarországon?", answers: ["Duna", "Tisza", "Rába"], correct: 1 }, { question: "Mi a Föld természetes holdjának neve?", answers: ["Phobos", "Hold", "Europa"], correct: 1 }, { question: "Ki írta a magyar Himnuszt?", answers: ["Petőfi Sándor", "Kölcsey Ferenc", "Vörösmarty Mihály"], correct: 1 }, { question: "Hány foga van egy átlagos felnőtt embernek?", answers: ["28", "30", "32"], correct: 2 }, { question: "Melyik sportban használják a 'les' szót?", answers: ["Kosárlabda", "Labdarúgás", "Tenisz"], correct: 1 }, { question: "Melyik érzékszervünkkel hallunk?", answers: ["Szem", "Nyelv", "Fül"], correct: 2 }, { question: "Milyen színű a hó?", answers: ["Átlátszó", "Fehér", "Kék"], correct: 1 }, { question: "Melyik a Naprendszerünk központi csillaga?", answers: ["Hold", "Nap", "Sirius"], correct: 1 }, { question: "Hány napból áll egy normál év?", answers: ["364", "365", "366"], correct: 1 }, { question: "Melyik évszakban esik jellemzően a hó?", answers: ["Nyár", "Ősz", "Tél"], correct: 2 }, { question: "Milyen állat adja a tehéntejet?", answers: ["Kecske", "Tehén", "Juh"], correct: 1 }, { question: "Melyik a legkisebb madár Magyarországon?", answers: ["Veréb", "Cinege", "Ökörszem"], correct: 2 }, { question: "Hány csillag van az USA zászlaján?", answers: ["13", "50", "51"], correct: 1 }, { question: "Mi a neve a híres magyar fűszerpaprikának?", answers: ["Szegedi", "Kalocsai", "Mindkettő"], correct: 2 }, { question: "Melyik a világ legnépesebb városa?", answers: ["Peking", "Delhi", "Tokió"], correct: 2 }, { question: "Hány szarva van egy egyszarvúnak?", answers: ["Egy", "Kettő", "Nincs neki"], correct: 0 }, { question: "Milyen színűek a postásautók Magyarországon?", answers: ["Kék", "Piros", "Sárga"], correct: 2 }, { question: "Melyik mesében szerepel Piroska?", answers: ["Hófehérke", "Piroska és a farkas", "Hamupipőke"], correct: 1 }
+                ],
+                medium: [
+                    { question: "Ki írta a Hamletet?", answers: ["Charles Dickens", "William Shakespeare", "Lev Tolsztoj"], correct: 1 }, { question: "Ki festette a Mona Lisát?", answers: ["Vincent van Gogh", "Leonardo da Vinci", "Pablo Picasso"], correct: 1}, { question: "Melyik a periódusos rendszer első eleme?", answers: ["Hélium", "Oxigén", "Hidrogén"], correct: 2}, { question: "Ki volt az első ember a Holdon?", answers: ["Jurij Gagarin", "Neil Armstrong", "Buzz Aldrin"], correct: 1}, { question: "Melyik a Föld legnépesebb országa?", answers: ["Kína", "India", "USA"], correct: 1}, { question: "Melyik mitológiai alak emelte az égboltot?", answers: ["Héraklész", "Atlasz", "Zeusz"], correct: 1}, { question: "Melyik hangszeren játszott Sherlock Holmes?", answers: ["Zongora", "Hegedű", "Cselló"], correct: 1}, { question: "Mi a fő összetevője a guacamolénak?", answers: ["Paradicsom", "Hagyma", "Avokádó"], correct: 2}, { question: "Ki írta 'A Gyűrűk Ura' című könyvet?", answers: ["J.K. Rowling", "George R.R. Martin", "J.R.R. Tolkien"], correct: 2}, { question: "Melyik tenger választja el Európát Afrikától?", answers: ["Fekete-tenger", "Vörös-tenger", "Földközi-tenger"], correct: 2}, { question: "Hány csont van egy felnőtt emberi testben?", answers: ["206", "212", "198"], correct: 0}, { question: "Mi a 'fotoszintézis' szó szerinti jelentése?", answers: ["Fény segítségével történő bontás", "Fény segítségével történő összerakás", "Víz segítségével történő légzés"], correct: 1}, { question: "Melyik ókori világcsoda maradt fenn máig?", answers: ["Halikarnasszoszi mauzóleum", "Gízai nagy piramis", "Artemisz temploma"], correct: 1}, { question: "Melyik évben egyesült Buda, Pest és Óbuda?", answers: ["1848", "1867", "1873"], correct: 2}, { question: "Mi a neve a tekerőlantnak is nevezett hangszernek?", answers: ["Cimbalom", "Citera", "Nyenyere"], correct: 2}, { question: "Melyik a Naphoz legközelebbi bolygó?", answers: ["Vénusz", "Merkúr", "Mars"], correct: 1}, { question: "Ki volt a 'Vaslady'?", answers: ["Angela Merkel", "Margaret Thatcher", "Golda Meir"], correct: 1}, { question: "Melyik városban van a 'Sagrada Familia'?", answers: ["Madrid", "Lisszabon", "Barcelona"], correct: 2}, { question: "Mi a Föld légkörének legkülső rétege?", answers: ["Termoszféra", "Mezoszféra", "Exoszféra"], correct: 2}, { question: "Melyik állat a 'páncélos lovag'?", answers: ["Tatárjárás", "Tatár beefsteak", "Tatu"], correct: 2}, { question: "Melyik a világ legkisebb madara?", answers: ["Veréb", "Kolibri", "Cinege"], correct: 1}, { question: "Hogyan nevezik a japán versformát, amely 3 sorból áll?", answers: ["Szamuráj", "Haiku", "Szusi"], correct: 1}, { question: "Melyik a legnagyobb sziget a Földön?", answers: ["Grönland", "Ausztrália", "Borneó"], correct: 0}, { question: "Melyik sportágban használatos a 'szerva' kifejezés?", answers: ["Foci", "Kosárlabda", "Tenisz"], correct: 2}, { question: "Melyik a legnagyobb belső szervünk?", answers: ["Szív", "Agy", "Máj"], correct: 2},
+                    { question: "Melyik évben volt a mohácsi csata?", answers: ["1241", "1526", "1848"], correct: 1 }, { question: "Ki volt az első magyar király?", answers: ["Árpád vezér", "I. (Szent) István", "Hunyadi Mátyás"], correct: 1 }, { question: "Melyik városban található a Colosseum?", answers: ["Athén", "Róma", "Isztambul"], correct: 1 }, { question: "Melyik a leggyakoribb elem az univerzumban?", answers: ["Oxigén", "Szén", "Hidrogén"], correct: 2 }, { question: "Melyik a világ legmélyebb tava?", answers: ["Tanganyika-tó", "Bajkál-tó", "Felső-tó"], correct: 1 }, { question: "Ki fedezte fel a penicillint?", answers: ["Marie Curie", "Louis Pasteur", "Alexander Fleming"], correct: 2 }, { question: "Mivel foglalkozik a zoológia tudománya?", answers: ["Növényekkel", "Állatokkal", "Gombákkal"], correct: 1 }, { question: "Hány billentyű van egy standard zongorán?", answers: ["76", "88", "92"], correct: 1 }, { question: "Melyik országban ered a Duna?", answers: ["Ausztria", "Svájc", "Németország"], correct: 2 }, { question: "Ki írta az 'Egri csillagok' című regényt?", answers: ["Jókai Mór", "Gárdonyi Géza", "Mikszáth Kálmán"], correct: 1 }, { question: "Melyik a legkisebb óceán?", answers: ["Indiai-óceán", "Jeges-tenger", "Atlanti-óceán"], correct: 1 }, { question: "Hány királynője lehet egy méhcsaládnak?", answers: ["Pontosan egy", "Kettő", "Több is lehet"], correct: 0 }, { question: "Mi a neve a római főistennek?", answers: ["Zeusz", "Mars", "Jupiter"], correct: 2 }, { question: "Melyik a világ legnagyobb esőerdeje?", answers: ["Kongói-medence", "Amazonasi esőerdő", "Daintree esőerdő"], correct: 1 }, { question: "Melyik festőművész nevéhez fűződik a 'Guernica'?", answers: ["Salvador Dalí", "Pablo Picasso", "Henri Matisse"], correct: 1 }, { question: "Melyik országban található a Tádzs Mahal?", answers: ["Pakisztán", "India", "Indonézia"], correct: 1 }, { question: "Melyik a legkeményebb ásvány a Mohs-skálán?", answers: ["Korund", "Topáz", "Gyémánt"], correct: 2 }, { question: "Ki volt a Napkirály?", answers: ["I. Ferenc", "Nagy Péter", "XIV. Lajos"], correct: 2 }, { question: "Melyik a legnagyobb sivatag Afrikában?", answers: ["Kalahári", "Szahara", "Namíb"], correct: 1 }, { question: "Mi a neve a japán nemzeti sportnak?", answers: ["Karate", "Cselgáncs", "Szumó"], correct: 2 }, { question: "Hány felesége volt VIII. Henrik angol királynak?", answers: ["Négy", "Hat", "Nyolc"], correct: 1 }, { question: "Melyik jelenleg a világ legmagasabb épülete?", answers: ["Shanghai Tower", "Burdzs Kalifa", "Merdeka 118"], correct: 1 }, { question: "Mi a neve a görög mitológiában a bölcsesség istennőjének?", answers: ["Héra", "Pallasz Athéné", "Artemisz"], correct: 1 }, { question: "Melyik évben ért véget a második világháború?", answers: ["1943", "1945", "1947"], correct: 1 }, { question: "Ki volt Petőfi Sándor felesége?", answers: ["Laborfalvi Róza", "Szendrey Júlia", "Csinszka"], correct: 1 }
+                ],
+                hard: [
+                    { question: "Melyik évben süllyedt el a Titanic?", answers: ["1905", "1912", "1921"], correct: 1 }, { question: "Melyik fém a legjobb elektromos vezető?", answers: ["Arany", "Ezüst", "Réz"], correct: 1}, { question: "Melyik a legkeményebb természetes anyag?", answers: ["Gyémánt", "Zafír", "Kvarc"], correct: 0}, { question: "Ki volt a Római Birodalom első császára?", answers: ["Julius Caesar", "Augustus", "Nero"], correct: 1}, { question: "Melyik a leghosszabb folyó a világon?", answers: ["Nílus", "Amazonas", "Jangce"], correct: 0}, { question: "Melyik festő vágta le a saját fülét?", answers: ["Picasso", "Van Gogh", "Monet"], correct: 1}, { question: "Mi a 'citius, altius, fortius' jelentése?", answers: ["Gyorsabban, magasabbra, erősebben", "Látni, jönni, győzni", "A kocka el van vetve"], correct: 0}, { question: "Melyik a legnagyobb sivatag a Földön?", answers: ["Szahara", "Góbi", "Antarktiszi poláris sivatag"], correct: 2}, { question: "Mi a neve a Schrödinger híres gondolatkísérletében szereplő állatnak?", answers: ["Kutya", "Macska", "Patkány"], correct: 1}, { question: "Hogy hívták az első klónozott emlőst?", answers: ["Molly", "Dolly", "Polly"], correct: 1}, { question: "Melyik kémiai elem vegyjele a 'W'?", answers: ["Tantál", "Volfrám", "Vanádium"], correct: 1}, { question: "Ki komponálta a 'Holdfény szonátát'?", answers: ["Mozart", "Bach", "Beethoven"], correct: 2}, { question: "Melyik tudós nevéhez fűződik a relativitáselmélet?", answers: ["Isaac Newton", "Albert Einstein", "Galileo Galilei"], correct: 1}, { question: "Melyik országban található a Machu Picchu?", answers: ["Brazília", "Peru", "Chile"], correct: 1}, { question: "Mi a 'Csomolungma' másik neve?", answers: ["K2", "Mount Everest", "Annapurna"], correct: 1}, { question: "Ki volt az utolsó egyiptomi fáraó?", answers: ["Tutanhamon", "Ramszesz", "VII. Kleopátra"], correct: 2}, { question: "Melyik a legkisebb csont az emberi testben?", answers: ["Kengyel", "Üllő", "Kalapács"], correct: 0}, { question: "Melyik a legritkább vércsoport?", answers: ["0-", "AB-", "B+"], correct: 1}, { question: "Mi a neve a fekete lyukat körülvevő 'nincs visszatérés' pontjának?", answers: ["Eseményhorizont", "Szingularitás", "Féreglyuk"], correct: 0}, { question: "Melyik festőművész híres az 'olvadó óráiról'?", answers: ["Pablo Picasso", "Salvador Dalí", "René Magritte"], correct: 1}, { question: "Hány szívkamrája van egy csótánynak?", answers: ["1", "4", "13"], correct: 2}, { question: "Melyik a legdélebbi főváros a világon?", answers: ["Canberra", "Wellington", "Buenos Aires"], correct: 1}, { question: "Mi a 'hemofóbia'?", answers: ["Félelem a magasságtól", "Félelem a pókoktól", "Félelem a vértől"], correct: 2}, { question: "Melyik a legdrágább fűszer a világon?", answers: ["Vanília", "Sáfrány", "Kardamom"], correct: 1}, { question: "Hogy hívják a Holdon található sötét síkságokat?", answers: ["Kráterek", "Tengerek (Maria)", "Hegyek (Montes)"], correct: 1},
+                    { question: "Melyik a legkönnyebb fém?", answers: ["Alumínium", "Titán", "Lítium"], correct: 2 }, { question: "Mi a neve a Föld és a Mars közötti aszteroidaöv legnagyobb objektumának?", answers: ["Vesta", "Ceres", "Pallas"], correct: 1 }, { question: "Ki írta a 'Bűn és bűnhődés' című regényt?", answers: ["Tolsztoj", "Dosztojevszkij", "Turgenyev"], correct: 1 }, { question: "Mi a címe Petőfi Sándor utolsó, befejezettnek tekintett versének?", answers: ["A puszta, télen", "Szörnyű idő...", "Az apostol"], correct: 1 }, { question: "Melyik bolygó kering leggyorsabban a Nap körül?", answers: ["Föld", "Merkúr", "Jupiter"], correct: 1 }, { question: "Hány Celsius-fok a víz hármaspontjának hőmérséklete?", answers: ["0 °C", "0.01 °C", "-0.01 °C"], correct: 1 }, { question: "Ki volt a 'dunai hajós' az 1838-as pesti árvíz idején?", answers: ["Széchenyi István", "Wesselényi Miklós", "Kossuth Lajos"], correct: 1 }, { question: "Melyik a leggyakrabban beszélt mesterséges nyelv?", answers: ["Klingon", "Eszperantó", "Interlingua"], correct: 1 }, { question: "Melyik csatában halt meg Zrínyi Miklós, a szigetvári hős?", answers: ["Szigetvár ostrománál", "Nem csatában, vadászbalesetben", "A mohácsi csatában"], correct: 0 }, { question: "Mi a neve az emberi test legnagyobb sejtjének?", answers: ["Idegsejt", "Petesejt", "Izomsejt"], correct: 1 }, { question: "Melyik országban található a világ legmagasabb vízesése, az Angel-vízesés?", answers: ["Brazília", "Venezuela", "Peru"], correct: 1 }, { question: "Hány alapszínt látnak a kutyák?", answers: ["Egyet (szürkeárnyalatos)", "Kettőt (sárga és kék)", "Hármat (mint az ember)"], correct: 1 }, { question: "Melyik a legritkább stabil, természetes elem a Földön?", answers: ["Asztácium", "Rénium", "Tantál"], correct: 1 }, { question: "Ki volt az első női Nobel-díjas?", answers: ["Bertha von Suttner", "Selma Lagerlöf", "Marie Curie"], correct: 2 }, { question: "Mi a neve a Jupiter legnagyobb holdjának?", answers: ["Europa", "Ganymedes", "Callisto"], correct: 1 }, { question: "Melyik évben vezették be az eurót mint készpénzt?", answers: ["1999", "2001", "2002"], correct: 2 }, { question: "Hogy hívják azt a jelenséget, amikor a fény meggörbül egy nagy tömegű objektum körül?", answers: ["Fekete lyuk effektus", "Gravitációs lencsehatás", "Doppler-effektus"], correct: 1 }, { question: "Melyik a világ egyetlen országa, amelynek zászlaja nem téglalap vagy négyzet alakú?", answers: ["Svájc", "Vatikán", "Nepál"], correct: 2 }, { question: "Mi a Planck-hossz definíciója?", answers: ["A proton átmérője", "A lehetséges legkisebb mérhető távolság", "A fény egy másodperc alatt megtett útja"], correct: 1 }, { question: "Melyik zeneszerző volt már teljesen süket, amikor a 9. szimfóniáját bemutatták?", answers: ["Mozart", "Bach", "Beethoven"], correct: 2 }, { question: "Mi Brazília hivatalos nyelve?", answers: ["Spanyol", "Brazil", "Portugál"], correct: 2 }, { question: "Hogy hívják a Föld légkörének legalsó rétegét?", answers: ["Sztratoszféra", "Troposzféra", "Mezoszféra"], correct: 1 }, { question: "Melyik a világ legkisebb független országa?", answers: ["Monaco", "Nauru", "Vatikán"], correct: 2 }, { question: "Melyik tudományág foglalkozik a gombákkal?", answers: ["Botanika", "Mikológia", "Zoológia"], correct: 1 }, { question: "Ki írta az '1984' című disztópikus regényt?", answers: ["Aldous Huxley", "George Orwell", "Ray Bradbury"], correct: 1 }
+                ]
+            };
+            
+            function mulberry32(a) { return function() { let t = a += 0x6D2B79F5; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61); return ((t ^ t >>> 14) >>> 0) / 4294967296; } }
+
+            function initGame(carryOverMoney = 0) {
+                const newSeed = Math.floor(Date.now() / MAP_REFRESH_INTERVAL);
+                if(gameOver && newSeed === currentMapSeed) {
+                    showWaitScreen();
+                    return;
+                }
+                currentMapSeed = newSeed;
+                seededRandom = mulberry32(currentMapSeed);
+
+                integratedWaitScreen.style.display = 'none';
+                gameElements.style.display = 'block';
+                document.getElementById('info-panel').style.display = 'block';
+
+                playerPosition = { x: 0, y: 0 }; prevPosition = { x: 0, y: 0 };
+                answeredQuestions = 0; lives = initialLives; money = carryOverMoney; activeBombs = bombCount;
+                gameOver = false; gameLocked = true; isScannerActive = false;
+                vestCount = 0; doublerCount = 0;
+                foundCodePieces = ['_', '_', '_', '_'];
+                usedQuestionIndices = { easy: new Set(), medium: new Set(), hard: new Set() };
+                messageContainer.className = ''; infoQuestionTextEl.textContent = '';
+                infoExitCoordsEl.textContent = ''; infoSafeCoordsEl.textContent = '';
+                
+                boardData = Array(boardSize).fill(null).map(() => Array.from({ length: boardSize }, () => ({ type: 'empty', isFlagged: false })));
+                
+                placeFixedItems(); placeRandomItems('exit', 1); placeRandomItems('safe', 1);
+                placeRandomItems('bomb', bombCount); placeRandomItems('question', questionCount);
+                placeRandomItems('codePiece', 4);
+                if(lostMoneyAmount > 0) placeRandomItems('lostMoney', 1);
+                
+                updateSafeHint();
+                
+                renderLives(); updateMoneyDisplay(); updateQuestionCounter(); updateBombCounter(); renderBoard();
+                flashBombs(); setupSafeKeypad(); updateVestIndicator(); updateDoublerIndicator();
+            }
+
+            function placeFixedItems() { fixedLifeCoords.forEach(c => { boardData[c.y][c.x] = { type: 'life', collected: false, isFlagged: false }; }); }
+            function placeRandomItems(type, count) {
+                 for (let i = 0; i < count; i++) {
+                    let x, y;
+                    do { x = Math.floor(seededRandom() * boardSize); y = Math.floor(seededRandom() * boardSize);
+                    } while ((x === 0 && y === 0) || boardData[y][x].type !== 'empty');
+                    
+                    if (type === 'question') boardData[y][x] = { type: 'question', used: false, isFlagged: false };
+                    else if (type === 'bomb') boardData[y][x] = { type: 'bomb', triggered: false, isFlagged: false };
+                    else if (type === 'safe') boardData[y][x] = { type: 'safe', isFlagged: false };
+                    else if (type === 'exit') { boardData[y][x] = { type: 'exit', isFlagged: false }; exitPosition = {x, y}; }
+                    else if (type === 'codePiece') boardData[y][x] = { type: 'codePiece', index: i, collected: false, isFlagged: false };
+                    else if (type === 'lostMoney') boardData[y][x] = { type: 'lostMoney', collected: false, isFlagged: false };
+                }
+            }
+
+            function flashBombs() {
+                messageContainer.textContent = 'Jegyezd meg a bombákat!';
+                setTimeout(() => {
+                    document.querySelectorAll('.bomb').forEach(cell => cell && cell.classList.add('revealed'));
+                    setTimeout(() => {
+                        document.querySelectorAll('.bomb').forEach(cell => cell && cell.classList.remove('revealed'));
+                        gameLocked = false;
+                        messageContainer.textContent = '';
+                    }, 2000);
+                }, 1000);
+            }
+
+            function renderBoard() {
+                if(!gameBoardElement) return;
+                gameBoardElement.innerHTML = `<thead><tr><th></th>${'ABCDEFGH'.split('').map(l => `<th>${l}</th>`).join('')}</tr></thead><tbody></tbody>`;
+                const tbody = gameBoardElement.querySelector('tbody');
+                for (let y = 0; y < boardSize; y++) {
+                    const row = document.createElement('tr');
+                    row.innerHTML = `<th>${y + 1}</th>`;
+                    for (let x = 0; x < boardSize; x++) {
+                        const cell = document.createElement('td');
+                        cell.dataset.x = x; cell.dataset.y = y;
+                        cell.onclick = () => handleCellClick(x, y);
+                        cell.oncontextmenu = (e) => { e.preventDefault(); handleRightClick(x,y); };
+                        const cellData = boardData[y][x];
+                        
+                        if(cellData.isFlagged && !(x === playerPosition.x && y === playerPosition.y)) {
+                             cell.classList.add('flagged-cell'); cell.appendChild(icons.flag.cloneNode(true));
+                        } else {
+                            if (cellData.type === 'exit') { cell.classList.add('exit-cell'); cell.appendChild(icons.exit.cloneNode(true)); } 
+                            else if (cellData.type === 'bomb') {
+                                cell.classList.add('bomb');
+                                if(cellData.triggered) { cell.classList.add('bomb-disarmed'); cell.appendChild(icons.crater.cloneNode(true)); }
+                            }
+                            else if (cellData.type === 'life') { if(!cellData.collected) { cell.classList.add('life-cell'); cell.appendChild(icons.life.cloneNode(true)); } }
+                            else if (cellData.type === 'safe') { cell.classList.add('safe-cell'); cell.appendChild(icons.safe.cloneNode(true)); }
+                            else if (cellData.type === 'codePiece') { if(!cellData.collected) { cell.classList.add('code-piece-cell'); cell.appendChild(icons.codePiece.cloneNode(true)); } }
+                            else if (cellData.type === 'lostMoney') { if(!cellData.collected) { cell.classList.add('lost-money-cell'); cell.appendChild(icons.lostMoney.cloneNode(true)); } }
+                            else if (cellData.type === 'question') {
+                                cell.classList.add('question-cell');
+                                if(cellData.answered) { cell.classList.add('question-answered'); cell.appendChild(icons.disarmed.cloneNode(true)); } 
+                                else { cell.appendChild(icons.question.cloneNode(true)); }
+                            }
+                        }
+
+                        if (x === playerPosition.x && y === playerPosition.y) {
+                            cell.classList.add('player'); cell.innerHTML = ''; cell.appendChild(icons.player.cloneNode(true));
+                        }
+                        row.appendChild(cell);
+                    }
+                    tbody.appendChild(row);
+                }
+                updatePlayerProximityGlow(); checkBombProximity();
+            }
+            
+            function handleCellClick(x, y) {
+                if (gameOver || gameLocked || (boardData[y][x].isFlagged && !(x === playerPosition.x && y === playerPosition.y))) return;
+                if(isScannerActive){
+                    const cell = gameBoardElement.querySelector(`[data-x='${x}'][data-y='${y}']`); const cellData = boardData[y][x];
+                    let tempClass = cellData.type === 'bomb' && !cellData.triggered ? 'revealed' : cellData.type + '-cell';
+                    if(tempClass) cell.classList.add(tempClass);
+                    setTimeout(() => { if(tempClass) cell.classList.remove(tempClass) }, 2000);
+                    isScannerActive = false; gameBoardElement.classList.remove('scanner-active'); messageContainer.textContent = '';
+                    return;
+                }
+                if ((x === playerPosition.x && y === playerPosition.y) || Math.abs(x - playerPosition.x) + Math.abs(y - playerPosition.y) !== 1) return;
+                
+                prevPosition = { ...playerPosition }; playerPosition = { x, y };
+                const cellData = boardData[y][x];
+                if (cellData.type === 'exit') {
+                    infoExitCoordsEl.textContent = `Kijárat: ${String.fromCharCode(65 + x)}-${y + 1}`;
+                    if (answeredQuestions >= questionCount) endGame(true);
+                    else { messageContainer.textContent = `Válaszolj meg minden kérdést a kijutáshoz!`; playerPosition = prevPosition; }
+                } 
+                else if (cellData.type === 'bomb' && !cellData.triggered) { activeBombs--; updateBombCounter(); cellData.triggered = true; handleMistake(); } 
+                else if (cellData.type === 'life' && !cellData.collected) { cellData.collected = true; lives++; renderLives(); }
+                else if (cellData.type === 'safe') { infoSafeCoordsEl.textContent = `Széf: ${String.fromCharCode(65 + x)}-${y + 1}`; safeModal.classList.add('visible'); gameLocked = true; }
+                else if (cellData.type === 'question' && !cellData.answered) { showDifficultyChoice(); }
+                else if (cellData.type === 'codePiece' && !cellData.collected) {
+                    cellData.collected = true; foundCodePieces[cellData.index] = safeCode[cellData.index]; updateSafeHint();
+                }
+                else if (cellData.type === 'lostMoney' && !cellData.collected) {
+                    cellData.collected = true; fetchAndShowQuestion('hard', lostMoneyAmount, true);
+                }
+                renderBoard();
+            }
+
+            function handleRightClick(x, y) {
+                if(gameOver || gameLocked || (x === playerPosition.x && y === playerPosition.y) || boardData[y][x].type === 'empty') return;
+                boardData[y][x].isFlagged = !boardData[y][x].isFlagged;
+                renderBoard();
+            }
+
+            function showDifficultyChoice() {
+                gameLocked = true; infoQuestionTextEl.textContent = "Válassz kérdés nehézséget:";
+                infoAnswerButtonsEl.innerHTML = `<button data-difficulty="easy" data-reward="75">Könnyű (75 Ft)</button> <button data-difficulty="medium" data-reward="150">Közepes (150 Ft)</button> <button data-difficulty="hard" data-reward="300">Nehéz (300 Ft)</button>`;
+                infoAnswerButtonsEl.querySelectorAll('button').forEach(btn => {
+                    const diff = btn.dataset.difficulty;
+                    if(usedQuestionIndices[diff].size >= questions[diff].length) btn.disabled = true;
+                    btn.onclick = () => fetchAndShowQuestion(diff, parseInt(btn.dataset.reward));
+                });
+            }
+            
+            function fetchAndShowQuestion(difficulty, reward, isLostMoneyQuestion = false) {
+                let questionIndex;
+                do { questionIndex = Math.floor(Math.random() * questions[difficulty].length); } while (usedQuestionIndices[difficulty].has(questionIndex) && usedQuestionIndices[difficulty].size < questions[difficulty].length);
+                usedQuestionIndices[difficulty].add(questionIndex);
+                currentQuestion = { difficulty, index: questionIndex, reward, isLostMoneyQuestion };
+                const q = questions[difficulty][questionIndex];
+                infoQuestionTextEl.textContent = q.question; infoAnswerButtonsEl.innerHTML = '';
+                q.answers.forEach((answerText, i) => { const button = document.createElement('button'); button.textContent = answerText; button.dataset.index = i; button.onclick = () => checkAnswer(i, button); infoAnswerButtonsEl.appendChild(button); });
+                infoQuestionShopEl.style.display = isLostMoneyQuestion ? 'none' : 'flex'; updateShopButtonsState();
+            }
+            
+            function checkAnswer(selectedIndex, clickedButton) {
+                const qData = questions[currentQuestion.difficulty][currentQuestion.index];
+                const isCorrect = selectedIndex === qData.correct;
+                clickedButton.classList.add(isCorrect ? 'correct-answer' : 'incorrect-answer');
+                Array.from(infoAnswerButtonsEl.children).forEach(btn => btn.disabled = true);
+                let reward = currentQuestion.reward;
+                if (isCorrect) {
+                    if(doublerCount > 0) { reward *= 2; doublerCount--; updateDoublerIndicator(); }
+                    if(currentQuestion.isLostMoneyQuestion) { money += lostMoneyAmount; lostMoneyAmount = 0; } else { money += reward; }
+                    updateMoneyDisplay();
+                } else { if(currentQuestion.isLostMoneyQuestion) { lostMoneyAmount = 0; } else { handleMistake(false); } }
+                if(!currentQuestion.isLostMoneyQuestion) { boardData[playerPosition.y][playerPosition.x].answered = true; answeredQuestions++; updateQuestionCounter(); }
+                setTimeout(() => { 
+                    infoQuestionTextEl.textContent = ''; infoAnswerButtonsEl.innerHTML = ''; infoQuestionShopEl.style.display = 'none';
+                    gameLocked = false;
+                    renderBoard();
+                }, 2000);
+                if (answeredQuestions >= questionCount) messageContainer.textContent = 'Minden kérdés megválaszolva! Irány a kijárat!';
+            }
+
+            function handleMistake(isBomb = true) {
+                if (vestCount > 0 && isBomb) { vestCount--; updateVestIndicator(); messageContainer.textContent = "A mellény megvédett a robbanástól!"; return; }
+                lives--; renderLives();
+                logoTitle.classList.add('triggered'); setTimeout(() => logoTitle.classList.remove('triggered'), 500);
+                if (lives <= 0) { endGame(false); }
+            }
+
+            function triggerFinalChance() {
+                gameLocked = true;
+                const finalQuestion = questions.medium[Math.floor(Math.random() * questions.medium.length)];
+                document.getElementById('final-chance-question').textContent = finalQuestion.question;
+                const finalAnswersContainer = document.getElementById('final-chance-answers');
+                const finalChanceMessage = document.getElementById('final-chance-message');
+                finalChanceMessage.textContent = `Válaszolj helyesen, hogy átmentsd a(z) ${money} Ft-ot a következő körre!`;
+                finalAnswersContainer.innerHTML = '';
+                finalQuestion.answers.forEach((answer, index) => {
+                    const button = document.createElement('button');
+                    button.textContent = answer;
+                    button.onclick = () => handleFinalAnswer(index === finalQuestion.correct, button);
+                    finalAnswersContainer.appendChild(button);
+                });
+                finalChanceModal.classList.add('visible');
+            }
+
+            function handleFinalAnswer(isCorrect, btn) {
+                Array.from(btn.parentElement.children).forEach(b => b.disabled = true);
+                btn.classList.add(isCorrect ? 'correct-answer' : 'incorrect-answer');
+                const finalChanceMessage = document.getElementById('final-chance-message');
+                if(isCorrect) {
+                    finalChanceMessage.textContent = `HELYES! A(z) ${money} Ft-ot sikeresen átmentetted!`;
+                    lostMoneyAmount = 0;
+                    setTimeout(() => {
+                        finalChanceModal.classList.remove('visible');
+                        showWaitScreen();
+                    }, 2000);
+                } else {
+                    finalChanceMessage.textContent = `SAJNOS NEM TALÁLT! De ne csüggedj, a(z) ${money} Ft-ot elrejtettük a következő pályán.`;
+                    lostMoneyAmount = money;
+                    money = 0; // Reset money for the next round, as it's now "lost" on the map
+                    setTimeout(() => {
+                        finalChanceModal.classList.remove('visible');
+                        showWaitScreen();
+                    }, 2000);
+                }
+            }
+            
+            function endGame(isWin) {
+                gameOver = true;
+                gameLocked = true;
+                if (isWin) {
+                    messageContainer.textContent = `Gratulálok, kijutottál! Nyereményed: ${money} Ft. Továbbviszed a következő pályára!`;
+                    lostMoneyAmount = 0; // Ensure no lost money is carried over
+                    setTimeout(showWaitScreen, 4000);
+                } else {
+                    triggerFinalChance();
+                }
+            }
+
+            function showWaitScreen() {
+                gameElements.style.display = 'none';
+                document.getElementById('info-panel').style.display = 'none';
+                const nextTime = new Date( (currentMapSeed + 1) * MAP_REFRESH_INTERVAL );
+                waitTimeEl.textContent = nextTime.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit'});
+                integratedWaitScreen.style.display = 'flex';
+            }
+            
+            function tick() {
+                const now = new Date();
+                const newSeed = Math.floor(now.getTime() / MAP_REFRESH_INTERVAL);
+                currentTimeEl.textContent = now.toLocaleTimeString('hu-HU');
+                const nextTime = new Date((currentMapSeed + 1) * MAP_REFRESH_INTERVAL);
+                nextMapTimeEl.textContent = nextTime.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit' });
+                if (newSeed > currentMapSeed && !gameOver) { newMapButton.style.display = 'block'; }
+                if (integratedWaitScreen.style.display !== 'none' && newSeed > currentMapSeed) { 
+                    initGame(lostMoneyAmount > 0 ? 0 : money); 
+                }
+            }
+            
+            function updateShopButtonsState() { shopScanCellBtn.disabled=money<costs.scanCell||gameOver||isScannerActive; shopDoublerBtn.disabled=money<costs.doubler||gameOver; shopGpsBtn.disabled=money<costs.gps||gameOver; shopVestBtn.disabled=money<costs.vest||gameOver; shopLifeBtn.disabled=money<costs.life||gameOver; shopHalveBtn.disabled=money<costs.halve||gameOver||!gameLocked; shopSkipBtn.disabled=money<costs.skip||gameOver||!gameLocked; }
+            function renderLives(){livesContainer.innerHTML='';for(let i=0;i<lives;i++){livesContainer.appendChild(icons.life.cloneNode(true))}}
+            function updateMoneyDisplay(){moneyValueEl.textContent=`${money} Ft`;updateShopButtonsState()}
+            function updateQuestionCounter(){questionCounterEl.textContent=`${answeredQuestions} / ${questionCount}`}
+            function updateBombCounter(){bombCounterEl.textContent = activeBombs; }
+            function updateVestIndicator(){ vestCountEl.textContent = `x${vestCount}`; vestIndicator.style.display=vestCount > 0?'flex':'none' }
+            function updateDoublerIndicator(){ doublerCountEl.textContent = `x${doublerCount}`; doublerIndicator.style.display=doublerCount > 0?'flex':'none' }
+            function checkBombProximity(){const {x,y}=playerPosition;const n=[[0,1],[0,-1],[1,0],[-1,0]];let b=false;for(const[dx,dy]of n){const nx=x+dx,ny=y+dy;if(nx>=0&&nx<boardSize&&ny>=0&&ny<boardSize&&boardData[ny][nx].type==='bomb'&&!boardData[ny][nx].triggered){b=true;break}}infoProximityEl.style.visibility=b?'visible':'hidden'}
+            function findClosestQuestion(fromPos){let d=Infinity;for(let y=0;y<boardSize;y++)for(let x=0;x<boardSize;x++)if(boardData[y][x].type==='question'&&!boardData[y][x].answered){const dist=Math.abs(fromPos.x-x)+Math.abs(fromPos.y-y);if(dist<d)d=dist}return d}
+            function updatePlayerProximityGlow(){const d=findClosestQuestion(playerPosition);const i=(d<=1)?1:(d<=3)?0.6:0.2;const p=document.querySelector('.player');if(p)p.style.setProperty('--player-glow-intensity',i)}
+            
+            function setupSafeKeypad(){safeKeypad.innerHTML='';['1','2','3','4','5','6','7','8','9','C','0','✓'].forEach(key=>{const b=document.createElement('button');b.textContent=key;b.onclick=()=>handleSafeKeypad(key);safeKeypad.appendChild(b)})}
+            function handleSafeKeypad(key){if(/\d/.test(key)&&safeDisplay.textContent.length<4)safeDisplay.textContent+=key;else if(key==='C')safeDisplay.textContent='';else if(key==='✓')checkSafeCode()}
+            function checkSafeCode(){if(safeDisplay.textContent===safeCode){disarmAllBombs();messageContainer.textContent="Sikeres kód! Minden bomba hatástalanítva!";safeModal.classList.remove('visible');gameLocked=false;renderBoard()}else{safeDisplay.classList.add('error');setTimeout(()=>{safeDisplay.classList.remove('error');safeDisplay.textContent=''},500)}}
+            function disarmAllBombs(){for(let y=0;y<boardSize;y++)for(let x=0;x<boardSize;x++)if(boardData[y][x].type==='bomb')boardData[y][x].triggered=true;activeBombs=0;updateBombCounter();}
+            function updateSafeHint(){ infoSafeHintEl.textContent = `Kód: ${foundCodePieces.join(' ')}`; }
+            safeModal.onclick=(e)=>{if(e.target===safeModal){safeModal.classList.remove('visible');gameLocked=false}};
+            
+            shopScanCellBtn.onclick=()=>{if(money>=costs.scanCell&&!isScannerActive){money-=costs.scanCell;updateMoneyDisplay();isScannerActive=true;gameBoardElement.classList.add('scanner-active');messageContainer.textContent="Kattints egy mezőre a szkenneléshez!"}};
+            shopGpsBtn.onclick=()=>{if(money<costs.gps)return;money-=costs.gps;updateMoneyDisplay();const path=findPathToClosestQuestion(playerPosition);if(path){path.forEach((pos,i)=>{if(i>0){const cell=gameBoardElement.querySelector(`[data-x='${pos.x}'][data-y='${pos.y}']`);if(cell)cell.classList.add('path-highlight');setTimeout(()=>cell&&cell.classList.remove('path-highlight'),3000)}})}};
+            shopVestBtn.onclick=()=>{if(money>=costs.vest){money-=costs.vest;vestCount++;updateMoneyDisplay();updateVestIndicator()}};
+            shopLifeBtn.onclick=()=>{if(money>=costs.life){money-=costs.life;updateMoneyDisplay();lives++;renderLives();}};
+            shopDoublerBtn.onclick=()=>{if(money>=costs.doubler){money-=costs.doubler;doublerCount++;updateMoneyDisplay();updateDoublerIndicator()}};
+            shopHalveBtn.onclick=()=>{if(money>=costs.halve){money-=costs.halve;updateMoneyDisplay();const qData=questions[currentQuestion.difficulty][currentQuestion.index];const c=qData.correct;const i=Array.from(infoAnswerButtonsEl.children).filter(b=>parseInt(b.dataset.index)!==c);if(i.length>1)i[Math.floor(Math.random()*i.length)].disabled=!0;shopHalveBtn.disabled=!0}};
+            shopSkipBtn.onclick=()=>{if(money>=costs.skip){money-=costs.skip;updateMoneyDisplay();boardData[playerPosition.y][playerPosition.x].answered=true;answeredQuestions++;updateQuestionCounter();if(answeredQuestions>=questionCount)messageContainer.textContent='Minden kérdés megválaszolva! Irány a kijárat!';gameLocked=false;infoQuestionTextEl.textContent='';infoAnswerButtonsEl.innerHTML='';infoQuestionShopEl.style.display='none';renderBoard()}};
+            
+            function findPathToClosestQuestion(start){const openSet=[{...start,g:0,h:0,f:0,parent:null}];const closedSet=new Set();let closestQuestion=null;let minH=Infinity;for(let y=0;y<boardSize;y++)for(let x=0;x<boardSize;x++)if(boardData[y][x].type==='question'&&!boardData[y][x].answered){const h=Math.abs(start.x-x)+Math.abs(start.y-y);if(h<minH){minH=h;closestQuestion={x,y}}}if(!closestQuestion)return null;while(openSet.length>0){openSet.sort((a,b)=>a.f-b.f);const current=openSet.shift();const currentKey=`${current.x},${current.y}`;if(current.x===closestQuestion.x&&current.y===closestQuestion.y){const path=[];let temp=current;while(temp){path.unshift(temp);temp=temp.parent}return path}closedSet.add(currentKey);[[0,1],[0,-1],[1,0],[-1,0]].forEach(([dx,dy])=>{const nx=current.x+dx;const ny=current.y+dy;if(nx<0||nx>=boardSize||ny<0||ny>=boardSize)return;const nKey=`${nx},${ny}`;if(closedSet.has(nKey)||(boardData[ny][nx].type==='bomb'&&!boardData[ny][nx].triggered))return;const g=current.g+1;let neighbor=openSet.find(n=>n.x===nx&&n.y===ny);if(!neighbor){const h=Math.abs(nx-closestQuestion.x)+Math.abs(ny-closestQuestion.y);neighbor={x:nx,y:ny,g,h,f:g+h,parent:current};openSet.push(neighbor)}else if(g<neighbor.g){neighbor.g=g;neighbor.f=g+neighbor.h;neighbor.parent=current}})}return null}
+
+            newMapButton.addEventListener('click', () => { newMapButton.style.display = 'none'; initGame(money); });
+            restartButton.addEventListener('click', () => initGame());
+            
+            setInterval(tick, 1000);
+            initGame();
+        });
+    </script>
+</body>
+</html>
